@@ -78,6 +78,7 @@ curl -s -o /dev/null -w "%{http_code}\n" -I -L \
 | [scripts/create_template.py](scripts/create_template.py) | Creates/updates the Runpod template |
 | [scripts/create_endpoint.py](scripts/create_endpoint.py) | Creates/updates the scale-to-zero endpoint |
 | [scripts/call_endpoint.py](scripts/call_endpoint.py) | Calls the endpoint and saves the PNG |
+| [client/flux2_client.py](client/flux2_client.py) | Standalone, dependency-free client to copy into other projects |
 | [scripts/volume.py](scripts/volume.py) | Creates/lists/deletes the weight-cache network volume |
 | [scripts/teardown.py](scripts/teardown.py) | Shows what is billing, and deletes it |
 | [.env.example](.env.example) | Template for your local secrets and config |
@@ -404,6 +405,22 @@ To reduce cold starts further:
   it with a different build.
 - Rerunning either create script updates the existing template/endpoint by name
   instead of creating duplicates.
+
+## Using the endpoint from another project
+
+Copy the single file [client/flux2_client.py](client/flux2_client.py) — stdlib
+only, nothing to install — and set `RUNPOD_API_KEY` and `RUNPOD_ENDPOINT_ID`:
+
+```python
+from flux2_client import generate
+
+png = generate("lora-cartoon, a caricature of this person",
+               init_image="face.jpg", guidance_scale=2.5, seed=42)
+open("out.png", "wb").write(png)
+```
+
+See [client/README.md](client/README.md). The `scripts/` versions stay here
+because they share `_common.py` with the deployment tooling.
 
 ## Deployed instance
 
