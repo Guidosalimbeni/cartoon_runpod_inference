@@ -100,13 +100,28 @@ gh workflow run build-and-push.yml -f tag=0.1
 ```
 
 The workflow authenticates with the built-in `GITHUB_TOKEN` (it declares
-`packages: write`), so no PAT is needed for CI. It publishes
-`ghcr.io/<owner>/flux2-runpod-worker` tagged `latest`, your `tag`, and the short SHA.
+`packages: write`), so no PAT is needed for CI.
 
-**Make the package accessible to Runpod:** after the first push, open
+A **push to main** publishes two tags: `latest` and `sha-<short-commit>`. The
+`0.1`-style tag only appears on a manual `workflow_dispatch` run, since
+`inputs.tag` is empty on a push event. **Point `IMAGE` at the `sha-` tag**, not
+`latest` — Runpod caches images on its workers, so a mutable tag can leave you
+with workers running different code.
+
+**Make the package accessible to Runpod.** A package published from a public
+repo is public by default, which is what Runpod needs. Verify with an anonymous
+pull — no credentials at all:
+
+```bash
+IMG=<owner>/flux2-runpod-worker
+TOKEN=$(curl -s "https://ghcr.io/token?scope=repository:$IMG:pull&service=ghcr.io" | jq -r .token)
+curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $TOKEN" \
+  "https://ghcr.io/v2/$IMG/manifests/latest"
+```
+
+`200` means Runpod can pull it. If you get `401`/`403`, open
 `https://github.com/users/<owner>/packages/container/flux2-runpod-worker/settings`
-and either set visibility to **public** (simplest) or add a GHCR pull credential
-in the Runpod template.
+and set visibility to **public**, or add a GHCR pull credential to the template.
 
 To build locally instead:
 
@@ -356,9 +371,18 @@ then leaving it for weeks, delete it between sessions.
 
 ## Cold starts
 
-The first call on a fresh worker downloads ~34GB of NF4 weights — expect
-**several minutes**, well past the `/runsync` window, so make the first call
-async. To reduce it:
+Measured on this endpoint (A40-class 48GB, EU-RO-1):
+
+| | queue delay | worker time |
+|---|---|---|
+| First ever call (pull 4.5GB image + download 34GB of weights) | **147 s** | 71 s |
+| Later cold start, weights already on the volume | **3.9 s** | 96 s |
+
+That 147s → 3.9s difference is the entire case for the network volume. The
+first call must be async (`/run` + `/status`); once the volume is warm,
+`/runsync` is fine.
+
+To reduce cold starts further:
 
 - Attach the **network volume** above so later cold starts only pay load time.
 - Keep **FlashBoot** on (it is, by default).
@@ -380,3 +404,19 @@ async. To reduce it:
   it with a different build.
 - Rerunning either create script updates the existing template/endpoint by name
   instead of creating duplicates.
+
+## Deployed instance
+
+Live resources created by this repo (ids also in `.env`, which is gitignored):
+
+| Resource | Id |
+|---|---|
+| Template | `ctl7j0wlh7` |
+| Endpoint | `wqa9wrxf1chw26` |
+| Network volume | `jocfg4z26l` (60GB, EU-RO-1) |
+| Image | `ghcr.io/guidosalimbeni/flux2-runpod-worker:sha-b3dc1d9` |
+
+```bash
+python scripts/call_endpoint.py "lora-cartoon, ..." --seed 42
+python scripts/teardown.py --status
+```

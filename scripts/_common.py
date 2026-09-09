@@ -45,6 +45,8 @@ def request(method: str, path: str, body: dict | None = None) -> dict:
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header("Authorization", f"Bearer {api_key()}")
     req.add_header("Content-Type", "application/json")
+    # Runpod sits behind Cloudflare, which rejects urllib's default UA (err 1010).
+    req.add_header("User-Agent", "cartoon-runpod-inference/0.1")
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
             raw = resp.read().decode()

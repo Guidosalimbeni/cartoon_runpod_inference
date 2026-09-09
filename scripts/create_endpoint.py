@@ -18,10 +18,42 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import env, load_env, request, upsert_env_file  # noqa: E402
 
 
-def gpu_types(min_vram_gb: int) -> list[dict]:
-    all_types = request("GET", "/gputypes") or []
-    matching = [g for g in all_types if (g.get("memoryInGb") or 0) >= min_vram_gb]
-    matching.sort(key=lambda g: (g.get("memoryInGb", 0), g.get("id", "")))
+# The REST API has no GPU-metadata endpoint, so VRAM is tabulated here against
+# the exact gpuTypeIds the /endpoints schema accepts. AMD is deliberately absent:
+# the image is CUDA-only (bitsandbytes NF4 needs CUDA).
+GPU_VRAM_GB = {
+    "NVIDIA A40": 48,
+    "NVIDIA L40": 48,
+    "NVIDIA L40S": 48,
+    "NVIDIA RTX A6000": 48,
+    "NVIDIA RTX 6000 Ada Generation": 48,
+    "NVIDIA RTX PRO 5000 Blackwell": 48,
+    "NVIDIA A100 80GB PCIe": 80,
+    "NVIDIA A100-SXM4-80GB": 80,
+    "NVIDIA H100 80GB HBM3": 80,
+    "NVIDIA H100 PCIe": 80,
+    "NVIDIA H100 NVL": 94,
+    "NVIDIA RTX PRO 6000 Blackwell Workstation Edition": 96,
+    "NVIDIA RTX PRO 6000 Blackwell Server Edition": 96,
+    "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition": 96,
+    "NVIDIA H200": 141,
+    "NVIDIA H200 NVL": 141,
+    "NVIDIA B200": 180,
+    # Below the 48GB bar; listed so --min-vram-gb can reach them deliberately.
+    "NVIDIA A100-SXM4-40GB": 40,
+    "NVIDIA GeForce RTX 5090": 32,
+    "NVIDIA RTX 5000 Ada Generation": 32,
+    "NVIDIA RTX PRO 4500 Blackwell": 32,
+    "NVIDIA GeForce RTX 4090": 24,
+    "NVIDIA GeForce RTX 3090": 24,
+    "NVIDIA L4": 24,
+    "NVIDIA RTX A5000": 24,
+}
+
+
+def gpu_types(min_vram_gb: int) -> list[tuple[str, int]]:
+    matching = [(gid, vram) for gid, vram in GPU_VRAM_GB.items() if vram >= min_vram_gb]
+    matching.sort(key=lambda item: (item[1], item[0]))
     return matching
 
 
@@ -36,6 +68,9 @@ def main() -> None:
     parser.add_argument("--idle-timeout", type=int, default=int(env("IDLE_TIMEOUT", "5")))
     parser.add_argument("--gpu-ids", default=env("GPU_TYPE_IDS", ""),
                         help="Comma-separated GPU type ids, overriding VRAM autodetection")
+    parser.add_argument("--data-centers", default=env("DATA_CENTER_ID", ""),
+                        help="Comma-separated data centers. Must include the network "
+                             "volume's data center, since a volume is region-bound.")
     parser.add_argument("--network-volume-id", default=env("NETWORK_VOLUME_ID", ""),
                         help="Attach a network volume at /runpod-volume so the ~34GB "
                              "of weights survive between cold starts. Bills hourly "
@@ -44,8 +79,8 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.list_gpus:
-        for gpu in gpu_types(args.min_vram_gb):
-            print(f"{gpu.get('memoryInGb'):>4}GB  {gpu.get('id')}")
+        for gid, vram in gpu_types(args.min_vram_gb):
+            print(f"{vram:>4}GB  {gid}")
         return
 
     if not args.template_id:
@@ -56,11 +91,11 @@ def main() -> None:
     else:
         matching = gpu_types(args.min_vram_gb)
         if not matching:
-            sys.exit(f"error: no GPU types with >= {args.min_vram_gb}GB available on this account")
-        gpu_ids = [g["id"] for g in matching]
-        print(f"GPUs >= {args.min_vram_gb}GB:")
-        for gpu in matching:
-            print(f"  {gpu.get('memoryInGb'):>4}GB  {gpu['id']}")
+            sys.exit(f"error: no known GPU type has >= {args.min_vram_gb}GB")
+        gpu_ids = [gid for gid, _ in matching]
+        print(f"GPUs >= {args.min_vram_gb}GB (smallest first, so 48GB is preferred):")
+        for gid, vram in matching:
+            print(f"  {vram:>4}GB  {gid}")
 
     body = {
         "name": args.name,
@@ -78,6 +113,8 @@ def main() -> None:
     }
     if args.network_volume_id:
         body["networkVolumeId"] = args.network_volume_id
+    if args.data_centers.strip():
+        body["dataCenterIds"] = [d.strip() for d in args.data_centers.split(",") if d.strip()]
 
     existing = {e.get("name"): e for e in request("GET", "/endpoints") or []}
     if args.name in existing:

@@ -51,7 +51,10 @@ def main() -> None:
     if args.name in existing:
         template_id = existing[args.name]["id"]
         print(f"updating existing template {args.name} ({template_id})")
-        result = request("PATCH", f"/templates/{template_id}", body)
+        # isServerless and category are fixed at creation and rejected by PATCH.
+        patch = {k: v for k, v in body.items() if k not in ("isServerless", "category")}
+        result = request("PATCH", f"/templates/{template_id}", patch)
+        result.setdefault("id", template_id)
     else:
         print(f"creating template {args.name}")
         result = request("POST", "/templates", body)
