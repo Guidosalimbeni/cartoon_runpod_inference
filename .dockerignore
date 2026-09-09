@@ -1,0 +1,11 @@
+.git
+.github
+.venv
+scripts
+specs.md
+README.md
+*.md
+.env
+__pycache__
+*.pyc
+out

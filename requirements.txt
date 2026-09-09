@@ -1,0 +1,20 @@
+# Runpod serverless SDK
+runpod>=1.7.0
+
+# Core inference stack.
+# FLUX.2 support (Flux2Pipeline) landed in diffusers after 0.35, so we track a
+# pinned commit of main rather than a PyPI release. Bump DIFFUSERS_REF in the
+# Dockerfile to move it.
+transformers>=4.57.0
+accelerate>=1.10.0
+safetensors>=0.4.5
+huggingface_hub>=0.35.0
+sentencepiece>=0.2.0
+protobuf>=4.25.0
+peft>=0.14.0
+Pillow>=10.4.0
+requests>=2.32.0
+
+# Runtime for the NF4 weights (the default BASE_MODEL ships prequantized) and
+# for QUANTIZE=4bit|8bit on-load quantization.
+bitsandbytes>=0.45.0
